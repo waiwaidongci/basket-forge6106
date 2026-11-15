@@ -12,3 +12,9 @@ class ProposalStatus(StrEnum):
  DRAFT='draft'
  APPROVED='approved'
  REJECTED='rejected'
+class PlanStatus(StrEnum):
+ QUEUED='queued'
+ RUNNING='running'
+ OPTIMAL='optimal'
+ FEASIBLE='feasible'
+ FAILED='failed'

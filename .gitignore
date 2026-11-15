@@ -32,3 +32,6 @@ target/
 *.o
 *.obj
 .DS_Store
+
+# 本地测试报告与截图（批次根目录约定）
+test-artifacts/

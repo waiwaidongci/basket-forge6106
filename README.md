@@ -13,7 +13,7 @@ docker compose up -d --build
 docker compose exec -T backend python -m scripts.seed_demo
 ```
 
-访问 [研究室](http://localhost:18202)；[后端交互文档](http://localhost:19202/docs)。数据库映射到 `localhost:17702`。正常会自动 seed；再次 seed 不新增、不覆盖已有自然键数据。空数据库包含 1200 张匿名收据、12 个研究商品、3 个收据批次、1 份算法真算基准研究及 1 份提案。
+访问 [研究室](http://localhost:18202)；[后端交互文档](http://localhost:19202/docs)。数据库映射到 `localhost:17702`。正常会自动 seed；再次 seed 不新增、不覆盖已有自然键数据。空数据库包含 1200 张匿名收据、12 个研究商品、3 个收据批次、1 份算法真算基准研究、1 份提案及 1 份已完成的联合测算示例。
 
 | 账号 | 密码 | 角色 | 典型权限 |
 |---|---|---|---|
@@ -34,7 +34,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 ## 页面与职责
 
-研究总览、收据与商品、规则实验、关联结果、组合提案、研究留痕共 6 页。RunList 被总览和规则实验复用，RuleLink 被总览、结果与提案复用。业务实体 Product、ReceiptBatch、Receipt、RuleRun、BundleProposal 贯穿数据库、schema、service、route/API、store 与页面。Receipt 只属于所属批次，API 返回前 100 张样本用于核对。批次导入最多 5000 张，JSON 数组包含 `reference` 与 `items`；界面给出可改的两张收据示例，不支持真实第三方数据源直连。
+研究总览、收据与商品、规则实验、关联结果、组合提案、联合测算、研究留痕共 7 页。RunList 被总览和规则实验复用，RuleLink 被总览、结果与提案复用。业务实体 Product、ReceiptBatch、Receipt、RuleRun、BundleProposal、JointPlan 贯穿数据库、schema、service、route/API、store 与页面。Receipt 只属于所属批次，API 返回前 100 张样本用于核对。批次导入最多 5000 张，JSON 数组包含 `reference` 与 `items`；界面给出可改的两张收据示例，不支持真实第三方数据源直连。
 
 ## 算法口径
 
@@ -46,6 +46,19 @@ docker compose exec -T backend python -m scripts.seed_demo
 - 理论毛利率 = (组合售价−组合成本)/组合售价；未扣折扣、损耗及陈列成本。
 
 空篮子、未知 SKU、非法阈值、少于 2 张导入数据会被拒绝；无规则是正常空结果。固定 seed `20261112` 产生演示篮子。运行记录保留批次、参数与结果指纹；提案复制规则快照，后续新运行不会改变已审核依据。算法度量共现，无法推断因果，也没有多重假设显著性保证。最多 4 项、5000 张篮子是本地研究配额，未经大规模负载测试。
+
+## 联合测算
+
+逐条挑规则会把同一张收据上的商品重复计入多套组合收益。联合测算（`backend/src/services/joint_optimizer.py`，纯 Python、单线程）从一份已完成研究中选择 **最多 24 个候选**，同时设置全场折扣、**最多 8 套陈列名额** 与各商品供给上限。约束与目标：
+
+- 每张收据每种商品最多分配一次；同一张收据可同时命中多个**商品不重叠**的组合。
+- 每种组合最多占用一个陈列名额；每个 SKU 的命中总数不超过供给上限。
+- 目标：最大化折后总毛利 `Σ命中数 × (组合标价×(1−折扣) − 组合成本)`；未扣损耗与陈列成本。
+- 5000 张收据的请求在单核 30 秒预算内返回（worker 默认 25 秒，可设 1–60 秒）。
+
+结果明示 `optimal`：仅当可核验上界被达到时为「已证最优」；否则为「可行解 · 未证最优」，并给出上界、绝对差距与百分比。上界由三个独立松弛取小并向上取整到分：名额/供给对偶（以商品对偶价定价，最多 8 条正贡献）、逐篮冲突松弛（忽略名额）、无供给约束的精确选择枚举（规模允许时）。超时降级返回最后可行方案并标记 `optimality_reason=deadline_feasible`。
+
+页面与下载包含逐篮分配（每张收据命中的组合与折后毛利）、库存占用（上限/已用/剩余/占用率）、候选汇总与未覆盖样本；联合测算冻结来源研究、候选规则快照、阈值与商品价格成本；旧提案及其规则快照不受影响。`result.audit` 独立复核分配的商品不重叠、组合属于该篮、供给上限、毛利算术与上界重算。
 
 ## 工程与本地开发
 
@@ -72,7 +85,7 @@ npm ci
 npm run build
 ```
 
-目录：`backend/src/{config,constants,models,schemas,services,controllers,routes,middlewares,utils}`；`backend/scripts/seed_demo.py`；`backend/migrations/`；`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`。`migrations/001_initial.sql` 说明首次启动 metadata 建表策略；本地演示未配 Alembic 增量升级，修改模型前应规划迁移。
+目录：`backend/src/{config,constants,models,schemas,services,controllers,routes,middlewares,utils}`；测试在 `backend/tests/`（`python -m pytest`）；`backend/scripts/seed_demo.py`；`backend/migrations/`；`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`。`migrations/001_initial.sql` 说明首次启动 metadata 建表策略；本地演示未配 Alembic 增量升级，修改模型前应规划迁移。
 
 环境变量见 `.env.example`：COMPOSE_PROJECT_NAME 隔离栈名；FRONTEND_PORT/BACKEND_PORT/DB_PORT 映射端口；POSTGRES_DB/USER/PASSWORD 配置库；JWT_SECRET 签名；SEED_DEMO 控制启动 seed。Compose 恰好 frontend/backend/worker/db/redis 5 个服务，全具健康检查，worker 使用定向 Celery ping。db-data、redis-data 与 artifacts 命名卷分别持久化库、队列、计算 JSON；API 与 worker 共享 artifacts。Nginx `/api/` 剥离前缀，API 原生路由不带 `/api`。
 
@@ -81,6 +94,10 @@ npm run build
 共享枚举：后端 `backend/src/constants/enums.py` 的 Role、RunStatus、ProposalStatus；前端 `frontend/src/constants/enums.ts` 同组角色和状态标签；使用处为 dependencies、运行/提案 service、Badge、Layout、各页面。数据库以字符串存储，schema 使用受限状态或权限检查，不接受任意审核状态。
 
 测试脚本、真实截图与结果全部位于批次根目录 `test-artifacts/gb-0003/`，源码中不放测试报告和日志。收尾：`docker compose down -v --remove-orphans` 会删除本栈演示数据卷。
+
+## 联合测算的本地验证
+
+`backend/tests/` 覆盖：与独立穷举（逐篮 matching + 用量状态 DP）的 180 个小实例对照、贪心重复计收益失效、零/极小供给与名额上限、折扣淘汰负毛利候选、2 秒预算超时降级、确定性、非法参数；API 侧覆盖 viewer 只读可下载、非法输入 422、旧提案回归。5000 收据 × 24 候选的单核实测与差距数据见 `test-artifacts/gb-0004/`。本环境无 Docker 守护进程，未复跑 compose 栈与真实 Celery/PostgreSQL 联调；测试用 SQLite + TestClient 真算，worker 任务体同步调用。
 
 ## 已完成的本地验收
 
